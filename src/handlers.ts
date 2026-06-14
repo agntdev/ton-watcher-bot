@@ -8,6 +8,7 @@ import {
   ownerDashboardKeyboard,
   setQuietHoursKeyboard,
   backToMainKeyboard,
+  backToOwnerKeyboard,
   cancelKeyboard,
 } from "./keyboards";
 
@@ -269,19 +270,52 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   }
 
   if (data === "owner:alerts") {
-    await ctx.reply(
-      "Alert stats will be shown here once the owner dashboard is fully implemented.",
-      { reply_markup: backToMainKeyboard() },
-    );
+    const allAlerts = await ctx.db.getTopAlerts(20);
+    const totalAlerts = (await ctx.db.getTopAlerts()).length;
+
+    if (allAlerts.length === 0) {
+      await ctx.reply("📊 **Alert Stats**\n\nNo alerts have been triggered yet.", {
+        parse_mode: "Markdown",
+        reply_markup: backToOwnerKeyboard(),
+      });
+    } else {
+      const lines = allAlerts.map((a) => {
+        const date = new Date(a.triggered_at * 1000).toISOString().slice(0, 16).replace("T", " ");
+        return `• ${a.coin_symbol} — $${a.price.toFixed(2)} (${a.change_percent >= 0 ? "+" : ""}${a.change_percent.toFixed(2)}%) — User ${a.user_id} — ${date}`;
+      });
+      await ctx.reply(
+        `📊 **Alert Stats**\n\nTotal alerts: ${totalAlerts}\nRecent (last 20):\n\n${lines.join("\n")}`,
+        { parse_mode: "Markdown", reply_markup: backToOwnerKeyboard() },
+      );
+    }
     await ctx.answerCallbackQuery();
     return;
   }
 
   if (data === "owner:users") {
-    await ctx.reply(
-      "User activity will be shown here once the owner dashboard is fully implemented.",
-      { reply_markup: backToMainKeyboard() },
-    );
+    const totalUsers = await ctx.db.getTotalUsers();
+    const recentAlerts = await ctx.db.getTopAlerts(10);
+
+    if (totalUsers === 0) {
+      await ctx.reply("👥 **User Activity**\n\nNo users registered yet.", {
+        parse_mode: "Markdown",
+        reply_markup: backToOwnerKeyboard(),
+      });
+    } else if (recentAlerts.length === 0) {
+      await ctx.reply(
+        `👥 **User Activity**\n\nTotal users: ${totalUsers}\nNo recent activity.`,
+        { parse_mode: "Markdown", reply_markup: backToOwnerKeyboard() },
+      );
+    } else {
+      const lines = recentAlerts.map((a) => {
+        const date = new Date(a.triggered_at * 1000).toISOString().slice(0, 16).replace("T", " ");
+        return `• User ${a.user_id} — ${a.coin_symbol} alert at $${a.price.toFixed(2)} — ${date}`;
+      });
+      await ctx.reply(
+        `👥 **User Activity**\n\nTotal users: ${totalUsers}\nRecent activity:\n\n${lines.join("\n")}`,
+        { parse_mode: "Markdown", reply_markup: backToOwnerKeyboard() },
+      );
+    }
     await ctx.answerCallbackQuery();
     return;
   }

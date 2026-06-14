@@ -73,6 +73,13 @@ export function backToMainKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Back to Main Menu", "nav:main");
 }
 
+export function backToOwnerKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Back to Owner Dashboard", "menu:owner")
+    .row()
+    .text("Back to Main Menu", "nav:main");
+}
+
 export function setQuietHoursKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("Set Quiet Hours", "quiet:set").row()
