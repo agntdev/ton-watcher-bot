@@ -1,0 +1,22 @@
+{
+  "name": "ton-watcher-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram bot for real-time Toncoin and TON jetton price alerts",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc && node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@grammyjs/conversations": "^1.2.0",
+    "grammy": "^1.44.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.8.0"
+  }
+}
