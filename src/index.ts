@@ -10,7 +10,7 @@ async function main() {
   const { bot, db } = createBot(token);
 
   const scheduler = startScheduler(bot, async () => {
-    return [];
+    return db.getUsersWithSummaryEnabled();
   }, db);
 
   scheduler.start();

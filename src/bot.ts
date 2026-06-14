@@ -19,7 +19,7 @@ import {
   quietHoursSetupConversation,
   priceRequestConversation,
 } from "./conversations";
-import { mainMenuKeyboard } from "./keyboards";
+import { mainMenuKeyboard, paginatorKeyboard } from "./keyboards";
 import { type DbService } from "./types";
 import { createAuthService } from "./auth";
 import { createDbService } from "./db";
@@ -40,6 +40,63 @@ function isInQuietHours(now: Date, startTime: string, endTime: string): boolean 
 
 function initialSession(): SessionData {
   return {};
+}
+
+const MESSAGE_MAX_CHARS = 3800;
+const SUMMARY_STORE_TTL_MS = 30 * 60 * 1000;
+
+interface MorningSummaryEntry {
+  pages: string[];
+  timestamp: number;
+}
+
+const morningSummaryStore = new Map<number, MorningSummaryEntry>();
+
+export function getMorningSummaryStore(): Map<number, MorningSummaryEntry> {
+  return morningSummaryStore;
+}
+
+function cleanupExpiredSummaryEntries(): void {
+  const now = Date.now();
+  for (const [key, entry] of morningSummaryStore) {
+    if (now - entry.timestamp > SUMMARY_STORE_TTL_MS) {
+      morningSummaryStore.delete(key);
+    }
+  }
+}
+
+function buildSummaryLine(
+  symbol: string,
+  priceUsd: number,
+  change1h: number,
+  change24h: number,
+): string {
+  const sign1h = change1h >= 0 ? "+" : "";
+  const sign24h = change24h >= 0 ? "+" : "";
+  return (
+    `${symbol} \\- \\$${priceUsd.toFixed(2)} \\(${sign1h}${change1h.toFixed(1)}% 1h, ` +
+    `${sign24h}${change24h.toFixed(1)}% 24h\\)`
+  );
+}
+
+function splitIntoPageChunks(lines: string[], header: string): string[] {
+  const pages: string[] = [];
+  const headerLen = header.length;
+  let currentPage = header;
+
+  for (const line of lines) {
+    const candidate = currentPage + (currentPage === header ? line : "\n" + line);
+    if (candidate.length > MESSAGE_MAX_CHARS && currentPage !== header) {
+      pages.push(currentPage);
+      currentPage = header + line;
+    } else {
+      currentPage = candidate;
+    }
+  }
+  if (currentPage !== header) {
+    pages.push(currentPage);
+  }
+  return pages;
 }
 
 export function createBot(token: string): { bot: Bot<MyContext>; db: DbService } {
@@ -165,19 +222,75 @@ export function startScheduler(
   getEnabledUserIds: () => Promise<number[]>,
   db: DbService,
 ): ScheduledTask {
+  const price = createPriceService();
+
   return schedule("0 8 * * *", async () => {
     const userIds = await getEnabledUserIds();
     const now = new Date();
+
+    cleanupExpiredSummaryEntries();
+
     for (const userId of userIds) {
       try {
         const qh = await db.getQuietHours(userId);
         if (qh && isInQuietHours(now, qh.start_time, qh.end_time)) {
           continue;
         }
-        await bot.api.sendMessage(
-          userId,
-          "🌅 Morning Summary will be generated here once all services are integrated.",
-        );
+
+        const watchlist = await db.getWatchlist(userId);
+        if (watchlist.length === 0) {
+          continue;
+        }
+
+        const symbols = watchlist.map((e) => e.coin_symbol);
+        const dateStr = now.toISOString().slice(0, 10);
+        const timeStr = now.toISOString().slice(11, 16);
+        const header =
+          `🌅 *Morning Summary — ${dateStr} ${timeStr} UTC*\n\n`;
+
+        let priceMap: Map<string, { price: number; change1h: number; change24h: number }>;
+        try {
+          const rawPrices = await price.getPrices(symbols);
+          priceMap = new Map();
+          for (const [sym, data] of rawPrices) {
+            priceMap.set(sym, {
+              price: data.price_usd,
+              change1h: data.change_1h_pct,
+              change24h: data.change_24h_pct,
+            });
+          }
+        } catch {
+          priceMap = new Map();
+        }
+
+        const lines: string[] = [];
+        const unavailable: string[] = [];
+        for (const symbol of symbols) {
+          const pd = priceMap.get(symbol);
+          if (pd) {
+            lines.push(buildSummaryLine(symbol, pd.price, pd.change1h, pd.change24h));
+          } else {
+            unavailable.push(symbol);
+          }
+        }
+
+        if (unavailable.length > 0) {
+          lines.push(
+            `\\[${unavailable.join(", ")} \\- data unavailable\\]`,
+          );
+        }
+
+        const pages = splitIntoPageChunks(lines, header);
+
+        if (pages.length === 1) {
+          await bot.api.sendMessage(userId, pages[0], { parse_mode: "Markdown" });
+        } else {
+          morningSummaryStore.set(userId, { pages, timestamp: Date.now() });
+          await bot.api.sendMessage(userId, pages[0], {
+            parse_mode: "Markdown",
+            reply_markup: paginatorKeyboard(0, pages.length, "morning_summary"),
+          });
+        }
       } catch (err) {
         console.error(`Failed to send morning summary to user ${userId}:`, err);
       }

@@ -152,11 +152,21 @@ export function createDbService(): DbService {
       return users.size;
     },
 
-    async getTopAlerts(limit?: number): Promise<AlertHistoryEntry[]> {
+async getTopAlerts(limit?: number): Promise<AlertHistoryEntry[]> {
       const sorted = [...alertHistory].sort(
         (a, b) => b.triggered_at - a.triggered_at,
       );
       return limit !== undefined ? sorted.slice(0, limit) : sorted;
+    },
+
+    async getUsersWithSummaryEnabled(): Promise<number[]> {
+      const ids: number[] = [];
+      for (const [id, user] of users) {
+        if (user.summary_enabled) {
+          ids.push(id);
+        }
+      }
+      return ids;
     },
   };
 }
