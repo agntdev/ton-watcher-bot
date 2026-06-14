@@ -168,5 +168,9 @@ async getTopAlerts(limit?: number): Promise<AlertHistoryEntry[]> {
       }
       return ids;
     },
+
+    async getAllUserIds(): Promise<number[]> {
+      return Array.from(users.keys());
+    },
   };
 }

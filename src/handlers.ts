@@ -9,7 +9,6 @@ import {
   setQuietHoursKeyboard,
   backToMainKeyboard,
   backToOwnerKeyboard,
-  cancelKeyboard,
   paginatorKeyboard,
 } from "./keyboards";
 import { getMorningSummaryStore } from "./bot";
@@ -57,12 +56,12 @@ export async function watchlistHandler(ctx: MyContext): Promise<void> {
 }
 
 export async function thresholdsHandler(ctx: MyContext): Promise<void> {
-  ctx.session.step = "threshold_coin";
+  ctx.session.step = undefined;
   ctx.session.coin = undefined;
   ctx.session.flowStartedAt = Date.now();
-  await ctx.reply("Which coin would you like to set a threshold for? (e.g., TON, USDT)", {
-    reply_markup: cancelKeyboard(),
-  });
+  await ctx.conversation.enter("thresholdSetup");
+  ctx.session.step = undefined;
+  ctx.session.flowStartedAt = undefined;
 }
 
 export async function priceHandler(ctx: MyContext): Promise<void> {
@@ -246,13 +245,12 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   if (data.startsWith("threshold:coin:")) {
     const coin = data.split(":")[2];
     ctx.session.coin = coin as "TON" | "USDT" | "GRAM";
-    ctx.session.step = "threshold_value";
+    ctx.session.step = undefined;
     ctx.session.flowStartedAt = Date.now();
-    await ctx.reply(
-      `Set a threshold for ${coin}. Example formats:\n- "below $2.50"\n- "+5% in 1h"\n- "-10% in 24h"`,
-      { reply_markup: cancelKeyboard() },
-    );
     await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("thresholdSetup");
+    ctx.session.step = undefined;
+    ctx.session.flowStartedAt = undefined;
     return;
   }
 

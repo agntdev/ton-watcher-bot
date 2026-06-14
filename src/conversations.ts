@@ -1,6 +1,6 @@
 import { type ConversationFn } from "@grammyjs/conversations";
 import { type MyContext } from "./session";
-import { SUPPORTED_COINS, type CoinSymbol } from "./types";
+import { SUPPORTED_COINS, type CoinSymbol, type ThresholdType } from "./types";
 import {
   cancelKeyboard,
   mainMenuKeyboard,
@@ -9,6 +9,53 @@ import {
 } from "./keyboards";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const BELOW_REGEX = /^below\s+\$?(\d+(?:\.\d+)?)$/i;
+const ABOVE_REGEX = /^above\s+\$?(\d+(?:\.\d+)?)$/i;
+const PCT_REGEX = /^([+-]?\d+(?:\.\d+)?)\s*%\s*(?:in\s+(1h|24h))?$/i;
+
+interface ParsedThreshold {
+  thresholdType: ThresholdType;
+  value: number;
+  timeframe?: number;
+}
+
+function parseThresholdInput(input: string): ParsedThreshold | null {
+  const belowMatch = input.match(BELOW_REGEX);
+  if (belowMatch) {
+    return { thresholdType: "price_below", value: parseFloat(belowMatch[1]) };
+  }
+
+  const aboveMatch = input.match(ABOVE_REGEX);
+  if (aboveMatch) {
+    return { thresholdType: "price_above", value: parseFloat(aboveMatch[1]) };
+  }
+
+  const pctMatch = input.match(PCT_REGEX);
+  if (pctMatch) {
+    const value = parseFloat(pctMatch[1]);
+    const timeframeStr = pctMatch[2];
+    return {
+      thresholdType: "percent_change",
+      value,
+      timeframe: timeframeStr ? (timeframeStr === "1h" ? 1 : 24) : undefined,
+    };
+  }
+
+  return null;
+}
+
+function describeThreshold(parsed: ParsedThreshold, coin: string): string {
+  if (parsed.thresholdType === "price_below") {
+    return `${coin} below $${parsed.value.toFixed(2)}`;
+  }
+  if (parsed.thresholdType === "price_above") {
+    return `${coin} above $${parsed.value.toFixed(2)}`;
+  }
+  const sign = parsed.value >= 0 ? "+" : "";
+  const tf = parsed.timeframe ? ` in ${parsed.timeframe}h` : "";
+  return `${coin} ${sign}${parsed.value}%${tf}`;
+}
 
 export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   conversation,
@@ -29,6 +76,9 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
         "Hmm, I don't recognize that coin. Try TON, USDT, or GRAM.",
         { reply_markup: mainMenuKeyboard() },
       );
+      conversation.session.step = undefined;
+      conversation.session.coin = undefined;
+      conversation.session.flowStartedAt = undefined;
       return;
     }
     conversation.session.coin = coinText as CoinSymbol;
@@ -47,15 +97,41 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   const thresholdCtx = await conversation.wait();
   const thresholdText = thresholdCtx.message?.text?.trim();
   if (!thresholdText) {
-    await thresholdCtx.reply("Invalid format. Use: [coin] [below/above] [price] or [coin] [±X%] in [1h/24h].", {
+    await thresholdCtx.reply("Invalid format. Use: [below/above] [price] or [±X%] in [1h/24h].", {
       reply_markup: mainMenuKeyboard(),
     });
+    conversation.session.step = undefined;
+    conversation.session.coin = undefined;
+    conversation.session.flowStartedAt = undefined;
     return;
   }
 
-  // Delegate saving to service layer — injected via bot middleware
+  const parsed = parseThresholdInput(thresholdText);
+  if (!parsed) {
+    await thresholdCtx.reply("Invalid format. Use: [below/above] [price] or [±X%] in [1h/24h].", {
+      reply_markup: mainMenuKeyboard(),
+    });
+    conversation.session.step = undefined;
+    conversation.session.coin = undefined;
+    conversation.session.flowStartedAt = undefined;
+    return;
+  }
+
+  if (ctx.from) {
+    await conversation.external(async () => {
+      await ctx.db.addThreshold({
+        user_id: ctx.from!.id,
+        coin_symbol: coin,
+        threshold_type: parsed.thresholdType,
+        value: parsed.value,
+        timeframe: parsed.timeframe,
+      });
+    });
+  }
+
+  const desc = describeThreshold(parsed, coin);
   await ctx.reply(
-    `Threshold for ${coin} saved! You'll be alerted when price crosses your threshold.`,
+    `Threshold "${desc}" saved! You'll be alerted when price crosses your threshold.`,
     { reply_markup: mainMenuKeyboard() },
   );
 

@@ -25,6 +25,7 @@ export interface AlertThreshold {
   coin_symbol: CoinSymbol;
   threshold_type: ThresholdType;
   value: number;
+  timeframe?: number;
   last_alert_time: number;
 }
 
@@ -74,6 +75,7 @@ export interface DbService {
   getTotalUsers(): Promise<number>;
   getTopAlerts(limit?: number): Promise<AlertHistoryEntry[]>;
   getUsersWithSummaryEnabled(): Promise<number[]>;
+  getAllUserIds(): Promise<number[]>;
 }
 
 export interface PriceService {

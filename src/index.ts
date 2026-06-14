@@ -1,4 +1,5 @@
 import { createBot, startScheduler } from "./bot";
+import { startAlertChecker } from "./alerts";
 
 async function main() {
   const token = process.env.BOT_TOKEN;
@@ -14,6 +15,9 @@ async function main() {
   }, db);
 
   scheduler.start();
+
+  const alertChecker = startAlertChecker(bot, db);
+  alertChecker.start();
 
   await bot.start({
     onStart(botInfo) {
