@@ -24,6 +24,9 @@ import { type DbService } from "./types";
 import { createAuthService } from "./auth";
 import { createDbService } from "./db";
 import { createPriceService } from "./price";
+import {
+  formatUserErrorMessage,
+} from "./error";
 
 function isInQuietHours(now: Date, startTime: string, endTime: string): boolean {
   const [sh, sm] = startTime.split(":").map(Number);
@@ -201,17 +204,25 @@ export function createBot(token: string): { bot: Bot<MyContext>; db: DbService }
   bot.on("callback_query:data", callbackQueryHandler);
 
   bot.catch((err) => {
-    console.error("Bot error:", err.error);
-    err.ctx.reply("An unexpected error occurred. Please try again.", {
-      reply_markup: mainMenuKeyboard(),
-    }).catch(() => {});
+    const userMessage = formatUserErrorMessage(err.error);
+    console.error("Bot error:", err.ctx?.update?.update_id, (err.error as Error)?.message ?? err.error);
+    if (err.ctx?.chat) {
+      err.ctx.reply(userMessage, {
+        reply_markup: mainMenuKeyboard(),
+      }).catch(() => {});
+    }
   });
 
   // Fallback for unhandled text messages
   bot.on("message:text", async (ctx) => {
-    await ctx.reply("Invalid command. Use /help for options.", {
+    await ctx.reply("I don't recognize that command. Use /help to see available options.", {
       reply_markup: mainMenuKeyboard(),
     });
+  });
+
+  // Fallback for unhandled callback queries
+  bot.on("callback_query", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "This action is no longer available." }).catch(() => {});
   });
 
   return { bot, db };
