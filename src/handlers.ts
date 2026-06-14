@@ -64,11 +64,10 @@ export async function thresholdsHandler(ctx: MyContext): Promise<void> {
 }
 
 export async function priceHandler(ctx: MyContext): Promise<void> {
-  ctx.session.step = "price_request";
   ctx.session.flowStartedAt = Date.now();
-  await ctx.reply("Enter the coin symbol to check its price (e.g., TON, USDT):", {
-    reply_markup: cancelKeyboard(),
-  });
+  await ctx.conversation.enter("priceRequest");
+  ctx.session.step = undefined;
+  ctx.session.flowStartedAt = undefined;
 }
 
 export async function summaryHandler(ctx: MyContext): Promise<void> {
