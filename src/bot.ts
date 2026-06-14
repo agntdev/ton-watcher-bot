@@ -24,6 +24,7 @@ import { type DbService } from "./types";
 import { createAuthService } from "./auth";
 import { createDbService } from "./db";
 import { createPriceService } from "./price";
+import { formatTelegramError, withRetry } from "./error";
 
 function isInQuietHours(now: Date, startTime: string, endTime: string): boolean {
   const [sh, sm] = startTime.split(":").map(Number);
@@ -144,17 +145,50 @@ export function createBot(token: string): { bot: Bot<MyContext>; db: DbService }
   bot.on("callback_query:data", callbackQueryHandler);
 
   bot.catch((err) => {
-    console.error("Bot error:", err.error);
-    err.ctx.reply("An unexpected error occurred. Please try again.", {
-      reply_markup: mainMenuKeyboard(),
-    }).catch(() => {});
+    const errorMessage = err.error instanceof Error ? err.error : new Error(String(err.error));
+    console.error("Bot error:", errorMessage.message);
+
+    const friendlyMessage = formatTelegramError(err.error);
+    const isNonRecoverable =
+      errorMessage.message.includes("bot was blocked") ||
+      errorMessage.message.includes("chat not found") ||
+      errorMessage.message.includes("bot was kicked");
+
+    if (!isNonRecoverable) {
+      err.ctx.reply(friendlyMessage, {
+        reply_markup: mainMenuKeyboard(),
+      }).catch(() => {});
+    }
+
+    try {
+      err.ctx.answerCallbackQuery?.({ text: friendlyMessage }).catch(() => {});
+    } catch {
+      // callback query might not exist
+    }
   });
 
   // Fallback for unhandled text messages
   bot.on("message:text", async (ctx) => {
-    await ctx.reply("Invalid command. Use /help for options.", {
-      reply_markup: mainMenuKeyboard(),
-    });
+    const knownCommands = [
+      "/start", "/help", "/watchlist", "/thresholds", "/price",
+      "/summary", "/quiet", "/cancel", "/owner",
+    ];
+    const input = ctx.message.text.trim().toLowerCase();
+    const suggestions = knownCommands
+      .filter((cmd) => cmd.includes(input) || input.includes(cmd))
+      .slice(0, 3);
+
+    if (suggestions.length > 0) {
+      await ctx.reply(
+        `Unknown command. Did you mean ${suggestions.join(" or ")}?\nType /help for all commands.`,
+        { reply_markup: mainMenuKeyboard() },
+      );
+    } else {
+      await ctx.reply(
+        "I didn't understand that. Use /help to see available commands.",
+        { reply_markup: mainMenuKeyboard() },
+      );
+    }
   });
 
   return { bot, db };
@@ -174,9 +208,20 @@ export function startScheduler(
         if (qh && isInQuietHours(now, qh.start_time, qh.end_time)) {
           continue;
         }
-        await bot.api.sendMessage(
-          userId,
-          "🌅 Morning Summary will be generated here once all services are integrated.",
+        await withRetry(
+          () =>
+            bot.api.sendMessage(
+              userId,
+              "🌅 Morning Summary will be generated here once all services are integrated.",
+            ),
+          {
+            maxRetries: 3,
+            onRetry: (attempt, error, delayMs) => {
+              console.warn(
+                `Retry ${attempt} for user ${userId}: ${error.message} (waiting ${delayMs}ms)`,
+              );
+            },
+          },
         );
       } catch (err) {
         console.error(`Failed to send morning summary to user ${userId}:`, err);

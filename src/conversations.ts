@@ -7,6 +7,7 @@ import {
   quietHoursConfirmationKeyboard,
   backToMainKeyboard,
 } from "./keyboards";
+import { formatTelegramError } from "./error";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -185,10 +186,10 @@ export const priceRequestConversation: ConversationFn<MyContext> = async (
       { reply_markup: backToMainKeyboard() },
     );
   } catch (err) {
-    await ctx.reply(
-      `Failed to fetch price data for ${coinText}. Please try again later.`,
-      { reply_markup: backToMainKeyboard() },
-    );
+    const friendly = formatTelegramError(err);
+    await ctx.reply(`Failed to fetch price data for ${coinText}. ${friendly}`, {
+      reply_markup: backToMainKeyboard(),
+    });
   }
 
   conversation.session.step = undefined;
