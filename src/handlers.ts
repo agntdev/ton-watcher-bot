@@ -2,6 +2,8 @@ import { type MyContext } from "./session";
 import {
   mainMenuKeyboard,
   watchlistManagementKeyboard,
+  watchlistAddCoinKeyboard,
+  watchlistItemsKeyboard,
   morningSummaryToggleKeyboard,
   ownerDashboardKeyboard,
   setQuietHoursKeyboard,
@@ -153,28 +155,66 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   }
 
   if (data === "watchlist:add") {
-    await ctx.reply(
-      "Which coin would you like to add? (e.g., TON, USDT, GRAM)",
-      { reply_markup: backToMainKeyboard() },
-    );
+    await ctx.reply("Select a coin to add to your watchlist:", {
+      reply_markup: watchlistAddCoinKeyboard(),
+    });
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  if (data.startsWith("watchlist:add:")) {
+    const coin = data.split(":")[2] as "TON" | "USDT" | "GRAM";
+    if (!ctx.from) return;
+    const watchlist = await ctx.db.getWatchlist(ctx.from.id);
+    if (watchlist.some((e) => e.coin_symbol === coin)) {
+      await ctx.reply(`${coin} is already in your watchlist.`, {
+        reply_markup: watchlistManagementKeyboard(),
+      });
+    } else {
+      await ctx.db.addToWatchlist(ctx.from.id, coin);
+      await ctx.reply(`${coin} added to your watchlist.`, {
+        reply_markup: watchlistManagementKeyboard(),
+      });
+    }
     await ctx.answerCallbackQuery();
     return;
   }
 
   if (data === "watchlist:view") {
-    await ctx.reply(
-      "Your watchlist will appear here. Use Add Coin to add items.",
-      { reply_markup: backToMainKeyboard() },
-    );
+    if (!ctx.from) return;
+    const watchlist = await ctx.db.getWatchlist(ctx.from.id);
+    if (watchlist.length === 0) {
+      await ctx.reply(
+        "Your watchlist is empty. Use Add Coin to start tracking.",
+        { reply_markup: watchlistManagementKeyboard() },
+      );
+    } else {
+      const coins = watchlist.map((e) => e.coin_symbol);
+      await ctx.reply("Your watchlist:", {
+        reply_markup: watchlistItemsKeyboard(coins),
+      });
+    }
     await ctx.answerCallbackQuery();
     return;
   }
 
   if (data.startsWith("watchlist:remove:")) {
-    const coin = data.split(":")[2];
-    await ctx.reply(`${coin} removed from watchlist.`, {
-      reply_markup: mainMenuKeyboard(),
-    });
+    const coin = data.split(":")[2] as "TON" | "USDT" | "GRAM";
+    if (!ctx.from) return;
+    await ctx.db.removeFromWatchlist(ctx.from.id, coin);
+    const watchlist = await ctx.db.getWatchlist(ctx.from.id);
+    if (watchlist.length === 0) {
+      await ctx.reply(
+        `${coin} removed. Your watchlist is now empty.`,
+        { reply_markup: watchlistManagementKeyboard() },
+      );
+    } else {
+      const coins = watchlist.map((e) => e.coin_symbol);
+      await ctx.reply(
+        `${coin} removed from watchlist.`,
+        { reply_markup: watchlistItemsKeyboard(coins) },
+      );
+    }
     await ctx.answerCallbackQuery();
     return;
   }

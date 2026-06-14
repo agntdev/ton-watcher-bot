@@ -21,6 +21,7 @@ import {
 } from "./conversations";
 import { mainMenuKeyboard } from "./keyboards";
 import { createAuthService } from "./auth";
+import { createDbService } from "./db";
 
 function initialSession(): SessionData {
   return {};
@@ -40,6 +41,19 @@ export function createBot(token: string): Bot<MyContext> {
   bot.use(createConversation(thresholdSetupConversation, "thresholdSetup"));
   bot.use(createConversation(quietHoursSetupConversation, "quietHoursSetup"));
   bot.use(createConversation(priceRequestConversation, "priceRequest"));
+
+  const db = createDbService();
+
+  bot.use(async (ctx, next) => {
+    ctx.db = db;
+    if (ctx.from) {
+      const user = await db.getUser(ctx.from.id);
+      if (!user) {
+        await db.createUser(ctx.from.id);
+      }
+    }
+    await next();
+  });
 
   const auth = createAuthService();
 
