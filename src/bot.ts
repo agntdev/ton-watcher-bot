@@ -20,6 +20,7 @@ import {
   priceRequestConversation,
 } from "./conversations";
 import { mainMenuKeyboard } from "./keyboards";
+import { createAuthService } from "./auth";
 
 function initialSession(): SessionData {
   return {};
@@ -39,6 +40,39 @@ export function createBot(token: string): Bot<MyContext> {
   bot.use(createConversation(thresholdSetupConversation, "thresholdSetup"));
   bot.use(createConversation(quietHoursSetupConversation, "quietHoursSetup"));
   bot.use(createConversation(priceRequestConversation, "priceRequest"));
+
+  const auth = createAuthService();
+
+  bot.use(async (ctx, next) => {
+    const callbackData = ctx.callbackQuery?.data;
+    const isOwnerCallback =
+      callbackData === "menu:owner" ||
+      callbackData === "owner:alerts" ||
+      callbackData === "owner:users";
+
+    const isOwnerCommand =
+      !ctx.callbackQuery &&
+      ctx.message !== undefined &&
+      "text" in ctx.message &&
+      ctx.message.text === "/owner";
+
+    if ((isOwnerCommand || isOwnerCallback) && ctx.from) {
+      const isOwner = await auth.isOwner(ctx.from.id);
+      if (!isOwner) {
+        if (isOwnerCallback) {
+          await ctx.answerCallbackQuery({
+            text: "You don't have access to the owner dashboard.",
+          });
+        } else {
+          await ctx.reply("You don't have access to the owner dashboard.", {
+            reply_markup: mainMenuKeyboard(),
+          });
+        }
+        return;
+      }
+    }
+    await next();
+  });
 
   bot.command("start", startHandler);
   bot.command("help", helpHandler);
