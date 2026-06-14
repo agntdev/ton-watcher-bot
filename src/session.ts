@@ -10,6 +10,7 @@ export interface SessionData {
   startTime?: string;
   endTime?: string;
   pendingConfirm?: boolean;
+  flowStartedAt?: number;
 }
 
 export type MyContext =
