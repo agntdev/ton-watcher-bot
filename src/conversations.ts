@@ -164,10 +164,11 @@ export const priceRequestConversation: ConversationFn<MyContext> = async (
       "Hmm, I don't recognize that coin. Try TON, USDT, or GRAM.",
       { reply_markup: mainMenuKeyboard() },
     );
+    conversation.session.step = undefined;
+    conversation.session.flowStartedAt = undefined;
     return;
   }
 
-  // Price lookup delegated to PriceService
   try {
     const priceData = await ctx.price.getPrice(coinText);
     const change1h =
@@ -189,4 +190,7 @@ export const priceRequestConversation: ConversationFn<MyContext> = async (
       { reply_markup: backToMainKeyboard() },
     );
   }
+
+  conversation.session.step = undefined;
+  conversation.session.flowStartedAt = undefined;
 };
