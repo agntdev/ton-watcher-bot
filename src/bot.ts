@@ -20,15 +20,29 @@ import {
   priceRequestConversation,
 } from "./conversations";
 import { mainMenuKeyboard } from "./keyboards";
+import { type DbService } from "./types";
 import { createAuthService } from "./auth";
 import { createDbService } from "./db";
 import { createPriceService } from "./price";
+
+function isInQuietHours(now: Date, startTime: string, endTime: string): boolean {
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const startMinutes = sh * 60 + sm;
+  const endMinutes = eh * 60 + em;
+  const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  if (startMinutes <= endMinutes) {
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  }
+  return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+}
 
 function initialSession(): SessionData {
   return {};
 }
 
-export function createBot(token: string): Bot<MyContext> {
+export function createBot(token: string): { bot: Bot<MyContext>; db: DbService } {
   const bot = new Bot<MyContext>(token);
 
   bot.use(
@@ -143,17 +157,23 @@ export function createBot(token: string): Bot<MyContext> {
     });
   });
 
-  return bot;
+  return { bot, db };
 }
 
 export function startScheduler(
   bot: Bot<MyContext>,
   getEnabledUserIds: () => Promise<number[]>,
+  db: DbService,
 ): ScheduledTask {
   return schedule("0 8 * * *", async () => {
     const userIds = await getEnabledUserIds();
+    const now = new Date();
     for (const userId of userIds) {
       try {
+        const qh = await db.getQuietHours(userId);
+        if (qh && isInQuietHours(now, qh.start_time, qh.end_time)) {
+          continue;
+        }
         await bot.api.sendMessage(
           userId,
           "🌅 Morning Summary will be generated here once all services are integrated.",

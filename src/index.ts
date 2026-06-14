@@ -7,11 +7,11 @@ async function main() {
     process.exit(1);
   }
 
-  const bot = createBot(token);
+  const { bot, db } = createBot(token);
 
   const scheduler = startScheduler(bot, async () => {
     return [];
-  });
+  }, db);
 
   scheduler.start();
 

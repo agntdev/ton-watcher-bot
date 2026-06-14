@@ -82,6 +82,10 @@ export const quietHoursSetupConversation: ConversationFn<MyContext> = async (
       "Invalid time format. Use HH:MM (e.g., 22:00).",
       { reply_markup: mainMenuKeyboard() },
     );
+    conversation.session.step = undefined;
+    conversation.session.startTime = undefined;
+    conversation.session.endTime = undefined;
+    conversation.session.flowStartedAt = undefined;
     return;
   }
   conversation.session.startTime = startText;
@@ -97,6 +101,10 @@ export const quietHoursSetupConversation: ConversationFn<MyContext> = async (
       "Invalid time format. Use HH:MM (e.g., 07:00).",
       { reply_markup: mainMenuKeyboard() },
     );
+    conversation.session.step = undefined;
+    conversation.session.startTime = undefined;
+    conversation.session.endTime = undefined;
+    conversation.session.flowStartedAt = undefined;
     return;
   }
   conversation.session.endTime = endText;
@@ -105,6 +113,38 @@ export const quietHoursSetupConversation: ConversationFn<MyContext> = async (
     `Confirm quiet hours: ${conversation.session.startTime} to ${conversation.session.endTime}`,
     { reply_markup: quietHoursConfirmationKeyboard() },
   );
+
+  const confirmCtx = await conversation.wait();
+  const callbackData = confirmCtx.callbackQuery?.data;
+
+  if (callbackData === "quiet:confirm") {
+    const startTime = conversation.session.startTime;
+    const endTime = conversation.session.endTime;
+    if (ctx.from && startTime && endTime) {
+      await conversation.external(async () => {
+        await ctx.db.setQuietHours({
+          user_id: ctx.from!.id,
+          start_time: startTime,
+          end_time: endTime,
+        });
+      });
+    }
+    await confirmCtx.answerCallbackQuery({ text: "Quiet hours saved!" });
+    await ctx.reply(
+      `Quiet hours saved: ${startTime} to ${endTime}`,
+      { reply_markup: mainMenuKeyboard() },
+    );
+  } else {
+    await confirmCtx.answerCallbackQuery({ text: "Cancelled" });
+    await ctx.reply("Quiet hours setup cancelled.", {
+      reply_markup: mainMenuKeyboard(),
+    });
+  }
+
+  conversation.session.step = undefined;
+  conversation.session.flowStartedAt = undefined;
+  conversation.session.startTime = undefined;
+  conversation.session.endTime = undefined;
 };
 
 export const priceRequestConversation: ConversationFn<MyContext> = async (
