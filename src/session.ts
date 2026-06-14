@@ -1,6 +1,6 @@
 import { type ConversationFlavor } from "@grammyjs/conversations";
 import { type Context, type SessionFlavor } from "grammy";
-import { type CoinSymbol } from "./types";
+import { type CoinSymbol, type DbService } from "./types";
 
 export interface SessionData {
   step?: string;
@@ -12,4 +12,8 @@ export interface SessionData {
   pendingConfirm?: boolean;
 }
 
-export type MyContext = Context & SessionFlavor<SessionData> & ConversationFlavor;
+export type MyContext = Context &
+  SessionFlavor<SessionData> &
+  ConversationFlavor & {
+    db: DbService;
+  };
