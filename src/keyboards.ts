@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import { type CoinSymbol } from "./types";
+import { type CoinSymbol, SUPPORTED_COINS } from "./types";
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -16,6 +16,15 @@ export function watchlistManagementKeyboard(): InlineKeyboard {
     .text("Add Coin", "watchlist:add")
     .text("View Watchlist", "watchlist:view").row()
     .text("Back to Main Menu", "nav:main");
+}
+
+export function watchlistAddCoinKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const coin of SUPPORTED_COINS) {
+    kb.text(coin, `watchlist:add:${coin}`).row();
+  }
+  kb.text("Back to Watchlist", "menu:watchlist");
+  return kb;
 }
 
 export function watchlistItemsKeyboard(coins: CoinSymbol[]): InlineKeyboard {
