@@ -73,6 +73,7 @@ export interface DbService {
 
   getTotalUsers(): Promise<number>;
   getTopAlerts(limit?: number): Promise<AlertHistoryEntry[]>;
+  getUsersWithSummaryEnabled(): Promise<number[]>;
 }
 
 export interface PriceService {

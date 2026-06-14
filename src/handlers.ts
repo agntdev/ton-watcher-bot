@@ -10,7 +10,9 @@ import {
   backToMainKeyboard,
   backToOwnerKeyboard,
   cancelKeyboard,
+  paginatorKeyboard,
 } from "./keyboards";
+import { getMorningSummaryStore } from "./bot";
 
 const WELCOME_TEXT =
   "Hi! I'm your TON crypto watcher." +
@@ -73,8 +75,9 @@ export async function priceHandler(ctx: MyContext): Promise<void> {
 export async function summaryHandler(ctx: MyContext): Promise<void> {
   ctx.session.step = undefined;
   ctx.session.flowStartedAt = undefined;
-  // Default to enabled state — actual state should come from DB
-  const enabled = false;
+  if (!ctx.from) return;
+  const user = await ctx.db.getUser(ctx.from.id);
+  const enabled = user?.summary_enabled ?? false;
   const status = enabled ? "Enabled" : "Disabled";
   const action = enabled ? "Disable" : "Enable";
   await ctx.reply(
@@ -261,6 +264,8 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   }
 
   if (data === "summary:enable") {
+    if (!ctx.from) return;
+    await ctx.db.updateUser(ctx.from.id, { summary_enabled: true });
     await ctx.reply("Morning Summary enabled! You'll receive daily updates at 08:00 UTC.", {
       reply_markup: mainMenuKeyboard(),
     });
@@ -269,6 +274,8 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   }
 
   if (data === "summary:disable") {
+    if (!ctx.from) return;
+    await ctx.db.updateUser(ctx.from.id, { summary_enabled: false });
     await ctx.reply("Morning Summary disabled.", {
       reply_markup: mainMenuKeyboard(),
     });
@@ -323,6 +330,27 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
         { parse_mode: "Markdown", reply_markup: backToOwnerKeyboard() },
       );
     }
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  if (data.startsWith("morning_summary:page:")) {
+    const page = parseInt(data.split(":")[2], 10);
+    if (!ctx.from) return;
+    const store = getMorningSummaryStore();
+    const entry = store.get(ctx.from.id);
+    if (!entry || entry.pages.length === 0) {
+      await ctx.answerCallbackQuery({ text: "Summary data is no longer available." });
+      return;
+    }
+    if (page < 0 || page >= entry.pages.length) {
+      await ctx.answerCallbackQuery({ text: "Invalid page." });
+      return;
+    }
+    await ctx.editMessageText(entry.pages[page], {
+      reply_markup: paginatorKeyboard(page, entry.pages.length, "morning_summary"),
+      parse_mode: "Markdown",
+    });
     await ctx.answerCallbackQuery();
     return;
   }

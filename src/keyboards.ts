@@ -95,6 +95,7 @@ export function paginatorKeyboard(
   if (page > 0) {
     kb.text("Previous", `${prefix}:page:${page - 1}`);
   }
+  kb.text(`Page ${page + 1}/${totalPages}`, "noop");
   if (page < totalPages - 1) {
     kb.text("Next", `${prefix}:page:${page + 1}`);
   }
