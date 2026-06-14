@@ -26,6 +26,7 @@ export interface AlertThreshold {
   threshold_type: ThresholdType;
   value: number;
   last_alert_time: number;
+  timeframe?: "1h" | "24h";
 }
 
 export interface AlertHistoryEntry {
@@ -55,6 +56,7 @@ export interface DbService {
   removeFromWatchlist(telegramId: number, coin: CoinSymbol): Promise<void>;
 
   getThresholds(telegramId: number): Promise<AlertThreshold[]>;
+  getAllThresholds(): Promise<AlertThreshold[]>;
   getThresholdsForCoin(telegramId: number, coin: CoinSymbol): Promise<AlertThreshold[]>;
   addThreshold(threshold: Omit<AlertThreshold, "last_alert_time">): Promise<AlertThreshold>;
   removeThreshold(telegramId: number, coin: CoinSymbol, thresholdType: ThresholdType): Promise<void>;

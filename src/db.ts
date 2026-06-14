@@ -78,6 +78,10 @@ export function createDbService(): DbService {
       return entries;
     },
 
+    async getAllThresholds(): Promise<AlertThreshold[]> {
+      return Array.from(thresholds.values());
+    },
+
     async getThresholdsForCoin(
       telegramId: number,
       coin: CoinSymbol,

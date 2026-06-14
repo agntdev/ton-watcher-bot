@@ -1,6 +1,6 @@
 import { type ConversationFn } from "@grammyjs/conversations";
 import { type MyContext } from "./session";
-import { SUPPORTED_COINS, type CoinSymbol } from "./types";
+import { SUPPORTED_COINS, type CoinSymbol, type ThresholdType } from "./types";
 import {
   cancelKeyboard,
   mainMenuKeyboard,
@@ -9,6 +9,37 @@ import {
 } from "./keyboards";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const PRICE_BELOW_REGEX = /below\s+\$?(\d+(?:\.\d+)?)/i;
+const PRICE_ABOVE_REGEX = /above\s+\$?(\d+(?:\.\d+)?)/i;
+const PERCENT_REGEX = /([+-]?\d+(?:\.\d+)?)\s*%\s*(?:in\s+)?(1h|24h)/i;
+
+function parseThreshold(
+  text: string,
+): { thresholdType: ThresholdType; value: number; timeframe?: "1h" | "24h" } | null {
+  let match: RegExpMatchArray | null;
+
+  match = text.match(PRICE_BELOW_REGEX);
+  if (match) {
+    return { thresholdType: "price_below", value: parseFloat(match[1]) };
+  }
+
+  match = text.match(PRICE_ABOVE_REGEX);
+  if (match) {
+    return { thresholdType: "price_above", value: parseFloat(match[1]) };
+  }
+
+  match = text.match(PERCENT_REGEX);
+  if (match) {
+    return {
+      thresholdType: "percent_change",
+      value: parseFloat(match[1]),
+      timeframe: match[2] as "1h" | "24h",
+    };
+  }
+
+  return null;
+}
 
 export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   conversation,
@@ -29,6 +60,9 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
         "Hmm, I don't recognize that coin. Try TON, USDT, or GRAM.",
         { reply_markup: mainMenuKeyboard() },
       );
+      conversation.session.step = undefined;
+      conversation.session.coin = undefined;
+      conversation.session.flowStartedAt = undefined;
       return;
     }
     conversation.session.coin = coinText as CoinSymbol;
@@ -39,6 +73,7 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   await ctx.reply(
     `Set a threshold for ${coin}. Example formats:\n` +
       '- "below $2.50"\n' +
+      '- "above $3.00"\n' +
       '- "+5% in 1h"\n' +
       '- "-10% in 24h"',
     { reply_markup: cancelKeyboard() },
@@ -47,15 +82,54 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   const thresholdCtx = await conversation.wait();
   const thresholdText = thresholdCtx.message?.text?.trim();
   if (!thresholdText) {
-    await thresholdCtx.reply("Invalid format. Use: [coin] [below/above] [price] or [coin] [±X%] in [1h/24h].", {
+    await thresholdCtx.reply("Invalid format. Use: below $X, above $X, +5% in 1h, or -10% in 24h.", {
       reply_markup: mainMenuKeyboard(),
     });
+    conversation.session.step = undefined;
+    conversation.session.coin = undefined;
+    conversation.session.flowStartedAt = undefined;
     return;
   }
 
-  // Delegate saving to service layer — injected via bot middleware
+  const parsed = parseThreshold(thresholdText);
+  if (!parsed) {
+    await thresholdCtx.reply(
+      "Invalid format. Use: below $X, above $X, +5% in 1h, or -10% in 24h.",
+      { reply_markup: mainMenuKeyboard() },
+    );
+    conversation.session.step = undefined;
+    conversation.session.coin = undefined;
+    conversation.session.flowStartedAt = undefined;
+    return;
+  }
+
+  if (!ctx.from) {
+    conversation.session.step = undefined;
+    conversation.session.coin = undefined;
+    conversation.session.flowStartedAt = undefined;
+    return;
+  }
+
+  await ctx.db.addThreshold({
+    user_id: ctx.from.id,
+    coin_symbol: coin,
+    threshold_type: parsed.thresholdType,
+    value: parsed.value,
+    timeframe: parsed.timeframe,
+  });
+
+  let description: string;
+  if (parsed.thresholdType === "price_below") {
+    description = `below $${parsed.value.toFixed(2)}`;
+  } else if (parsed.thresholdType === "price_above") {
+    description = `above $${parsed.value.toFixed(2)}`;
+  } else {
+    const sign = parsed.value >= 0 ? "+" : "";
+    description = `${sign}${parsed.value}% in ${parsed.timeframe}`;
+  }
+
   await ctx.reply(
-    `Threshold for ${coin} saved! You'll be alerted when price crosses your threshold.`,
+    `Threshold for ${coin} saved: ${description}. You'll be alerted when the price crosses your threshold.`,
     { reply_markup: mainMenuKeyboard() },
   );
 

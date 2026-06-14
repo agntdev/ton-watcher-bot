@@ -23,12 +23,13 @@ import { mainMenuKeyboard } from "./keyboards";
 import { createAuthService } from "./auth";
 import { createDbService } from "./db";
 import { createPriceService } from "./price";
+import { type PriceData, type CoinSymbol, type AlertThreshold, type DbService, type PriceService } from "./types";
 
 function initialSession(): SessionData {
   return {};
 }
 
-export function createBot(token: string): Bot<MyContext> {
+export function createBot(token: string): { bot: Bot<MyContext>; db: DbService; price: PriceService } {
   const bot = new Bot<MyContext>(token);
 
   bot.use(
@@ -143,7 +144,7 @@ export function createBot(token: string): Bot<MyContext> {
     });
   });
 
-  return bot;
+  return { bot, db, price };
 }
 
 export function startScheduler(
@@ -161,6 +162,139 @@ export function startScheduler(
       } catch (err) {
         console.error(`Failed to send morning summary to user ${userId}:`, err);
       }
+    }
+  }, {
+    scheduled: false,
+    timezone: "UTC",
+  });
+}
+
+const CONSOLIDATION_WINDOW_MS = 60 * 60 * 1000;
+
+function isInQuietHours(
+  quietHours: { start_time: string; end_time: string } | null,
+): boolean {
+  if (!quietHours) return false;
+  const now = new Date();
+  const [startH, startM] = quietHours.start_time.split(":").map(Number);
+  const [endH, endM] = quietHours.end_time.split(":").map(Number);
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  if (startMinutes <= endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
+}
+
+async function checkThreshold(
+  threshold: AlertThreshold,
+  priceData: PriceData,
+  db: DbService,
+  bot: Bot<MyContext>,
+): Promise<void> {
+  const now = Date.now();
+  const timeSinceLastAlert = now - threshold.last_alert_time;
+
+  if (timeSinceLastAlert < CONSOLIDATION_WINDOW_MS && threshold.last_alert_time > 0) {
+    const currentPrice = priceData.price_usd;
+    if (threshold.threshold_type === "price_below" || threshold.threshold_type === "price_above") {
+      const thresholdPrice = threshold.value;
+      const deviation = Math.abs(currentPrice - thresholdPrice) / thresholdPrice;
+      if (deviation < 0.05) {
+        return;
+      }
+    }
+  }
+
+  const quietHours = await db.getQuietHours(threshold.user_id);
+  if (isInQuietHours(quietHours)) return;
+
+  let triggered = false;
+  let alertDescription = "";
+
+  if (threshold.threshold_type === "price_below") {
+    if (priceData.price_usd < threshold.value) {
+      triggered = true;
+      alertDescription = `below $${threshold.value.toFixed(2)}`;
+    }
+  } else if (threshold.threshold_type === "price_above") {
+    if (priceData.price_usd > threshold.value) {
+      triggered = true;
+      alertDescription = `above $${threshold.value.toFixed(2)}`;
+    }
+  } else if (threshold.threshold_type === "percent_change") {
+    const change = threshold.timeframe === "1h"
+      ? priceData.change_1h_pct
+      : priceData.change_24h_pct;
+
+    if (threshold.value >= 0 && change >= threshold.value) {
+      triggered = true;
+      alertDescription = `up ${threshold.value}% in ${threshold.timeframe}`;
+    } else if (threshold.value < 0 && change <= threshold.value) {
+      triggered = true;
+      alertDescription = `down ${Math.abs(threshold.value)}% in ${threshold.timeframe}`;
+    }
+  }
+
+  if (triggered) {
+    await db.updateLastAlertTime(
+      threshold.user_id,
+      threshold.coin_symbol,
+      threshold.threshold_type,
+      now,
+    );
+
+    await db.addAlertHistory({
+      user_id: threshold.user_id,
+      coin_symbol: threshold.coin_symbol,
+      triggered_at: Math.floor(now / 1000),
+      price: priceData.price_usd,
+      change_percent: priceData.change_1h_pct,
+    });
+
+    const change1h = priceData.change_1h_pct >= 0
+      ? `+${priceData.change_1h_pct.toFixed(1)}%`
+      : `${priceData.change_1h_pct.toFixed(1)}%`;
+    const change24h = priceData.change_24h_pct >= 0
+      ? `+${priceData.change_24h_pct.toFixed(1)}%`
+      : `${priceData.change_24h_pct.toFixed(1)}%`;
+
+    try {
+      await bot.api.sendMessage(
+        threshold.user_id,
+        `⚠️ Alert: ${threshold.coin_symbol} ${alertDescription}!\n` +
+          `Current price: $${priceData.price_usd.toFixed(2)}\n` +
+          `Change: ${change1h} in 1h, ${change24h} in 24h`,
+        { reply_markup: { inline_keyboard: [[{ text: "Dismiss", callback_data: "alert:dismiss" }]] } },
+      );
+    } catch (err) {
+      console.error(`Failed to send alert to user ${threshold.user_id}:`, err);
+    }
+  }
+}
+
+export function startThresholdChecker(
+  bot: Bot<MyContext>,
+  db: DbService,
+  price: PriceService,
+): ScheduledTask {
+  return schedule("*/5 * * * *", async () => {
+    try {
+      const allThresholds = await db.getAllThresholds();
+      if (allThresholds.length === 0) return;
+
+      const uniqueCoins = new Set(allThresholds.map((t) => t.coin_symbol));
+      const priceMap = await price.getPrices([...uniqueCoins]);
+
+      for (const threshold of allThresholds) {
+        const priceData = priceMap.get(threshold.coin_symbol);
+        if (!priceData) continue;
+        await checkThreshold(threshold, priceData, db, bot);
+      }
+    } catch (err) {
+      console.error("Threshold checker error:", err);
     }
   }, {
     scheduled: false,

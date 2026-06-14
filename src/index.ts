@@ -1,4 +1,4 @@
-import { createBot, startScheduler } from "./bot";
+import { createBot, startScheduler, startThresholdChecker } from "./bot";
 
 async function main() {
   const token = process.env.BOT_TOKEN;
@@ -7,13 +7,16 @@ async function main() {
     process.exit(1);
   }
 
-  const bot = createBot(token);
+  const { bot, db, price } = createBot(token);
 
   const scheduler = startScheduler(bot, async () => {
     return [];
   });
 
   scheduler.start();
+
+  const thresholdChecker = startThresholdChecker(bot, db, price);
+  thresholdChecker.start();
 
   await bot.start({
     onStart(botInfo) {
