@@ -55,6 +55,32 @@ export function createBot(token: string): Bot<MyContext> {
     await next();
   });
 
+  const FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+
+  bot.use(async (ctx, next) => {
+    const { step, flowStartedAt } = ctx.session;
+    if (step && flowStartedAt && Date.now() - flowStartedAt > FLOW_TIMEOUT_MS) {
+      ctx.session.step = undefined;
+      ctx.session.coin = undefined;
+      ctx.session.flowStartedAt = undefined;
+      ctx.session.startTime = undefined;
+      ctx.session.endTime = undefined;
+      ctx.session.thresholdType = undefined;
+      ctx.session.thresholdValue = undefined;
+      try {
+        await ctx.conversation.exit();
+      } catch {
+        // no active conversation
+      }
+      await ctx.reply(
+        "Your session has timed out after 5 minutes of inactivity. Returning to main menu.",
+        { reply_markup: mainMenuKeyboard() },
+      );
+      return;
+    }
+    await next();
+  });
+
   const auth = createAuthService();
 
   bot.use(async (ctx, next) => {

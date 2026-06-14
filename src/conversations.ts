@@ -14,6 +14,7 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
   conversation,
   ctx,
 ) => {
+  conversation.session.flowStartedAt = Date.now();
   const existingCoin = ctx.session.coin;
 
   if (!existingCoin) {
@@ -60,6 +61,7 @@ export const thresholdSetupConversation: ConversationFn<MyContext> = async (
 
   conversation.session.step = undefined;
   conversation.session.coin = undefined;
+  conversation.session.flowStartedAt = undefined;
   conversation.session.thresholdType = undefined;
   conversation.session.thresholdValue = undefined;
 };
@@ -68,6 +70,7 @@ export const quietHoursSetupConversation: ConversationFn<MyContext> = async (
   conversation,
   ctx,
 ) => {
+  conversation.session.flowStartedAt = Date.now();
   await ctx.reply("Enter start time (24h format, e.g., 22:00):", {
     reply_markup: cancelKeyboard(),
   });
@@ -108,6 +111,7 @@ export const priceRequestConversation: ConversationFn<MyContext> = async (
   conversation,
   ctx,
 ) => {
+  conversation.session.flowStartedAt = Date.now();
   await ctx.reply(
     "Enter the coin symbol to check its price (e.g., TON, USDT):",
     { reply_markup: cancelKeyboard() },
