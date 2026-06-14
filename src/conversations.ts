@@ -128,8 +128,25 @@ export const priceRequestConversation: ConversationFn<MyContext> = async (
   }
 
   // Price lookup delegated to PriceService
-  await ctx.reply(
-    `Price check for ${coinText} requested. (Price data will be fetched by the price service.)`,
-    { reply_markup: backToMainKeyboard() },
-  );
+  try {
+    const priceData = await ctx.price.getPrice(coinText);
+    const change1h =
+      priceData.change_1h_pct >= 0
+        ? `+${priceData.change_1h_pct.toFixed(1)}%`
+        : `${priceData.change_1h_pct.toFixed(1)}%`;
+    const change24h =
+      priceData.change_24h_pct >= 0
+        ? `+${priceData.change_24h_pct.toFixed(1)}%`
+        : `${priceData.change_24h_pct.toFixed(1)}%`;
+    const updated = new Date(priceData.last_updated).toISOString().slice(0, 16).replace("T", " ");
+    await ctx.reply(
+      `${coinText} is currently $${priceData.price_usd.toFixed(2)} (${change1h} in 1h, ${change24h} in 24h).\nLast updated: ${updated} UTC.`,
+      { reply_markup: backToMainKeyboard() },
+    );
+  } catch (err) {
+    await ctx.reply(
+      `Failed to fetch price data for ${coinText}. Please try again later.`,
+      { reply_markup: backToMainKeyboard() },
+    );
+  }
 };
