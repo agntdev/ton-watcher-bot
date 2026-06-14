@@ -90,9 +90,17 @@ export async function summaryHandler(ctx: MyContext): Promise<void> {
 export async function quietHandler(ctx: MyContext): Promise<void> {
   ctx.session.step = undefined;
   ctx.session.flowStartedAt = undefined;
-  await ctx.reply("Would you like to set your quiet hours?", {
-    reply_markup: setQuietHoursKeyboard(),
-  });
+  const qh = ctx.from ? await ctx.db.getQuietHours(ctx.from.id) : null;
+  if (qh) {
+    await ctx.reply(
+      `Current quiet hours: ${qh.start_time} to ${qh.end_time}\nWould you like to update them?`,
+      { reply_markup: setQuietHoursKeyboard() },
+    );
+  } else {
+    await ctx.reply("Would you like to set your quiet hours?", {
+      reply_markup: setQuietHoursKeyboard(),
+    });
+  }
 }
 
 export async function ownerHandler(ctx: MyContext): Promise<void> {
@@ -247,24 +255,8 @@ export async function callbackQueryHandler(ctx: MyContext): Promise<void> {
   }
 
   if (data === "quiet:set") {
-    ctx.session.step = "quiet_start";
     ctx.session.flowStartedAt = Date.now();
-    await ctx.reply("Enter start time (24h format, e.g., 22:00):", {
-      reply_markup: { inline_keyboard: [[{ text: "Cancel", callback_data: "nav:main" }]] },
-    });
-    await ctx.answerCallbackQuery();
-    return;
-  }
-
-  if (data === "quiet:confirm") {
-    await ctx.reply(
-      `Quiet hours saved: ${ctx.session.startTime || "N/A"} to ${ctx.session.endTime || "N/A"}`,
-      { reply_markup: mainMenuKeyboard() },
-    );
-    ctx.session.step = undefined;
-    ctx.session.flowStartedAt = undefined;
-    ctx.session.startTime = undefined;
-    ctx.session.endTime = undefined;
+    await ctx.conversation.enter("quietHoursSetup");
     await ctx.answerCallbackQuery();
     return;
   }
