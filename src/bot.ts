@@ -1,4 +1,4 @@
-import { Bot, session } from "grammy";
+import { Bot, GrammyError, HttpError, session } from "grammy";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { schedule, type ScheduledTask } from "node-cron";
 import { type MyContext, type SessionData } from "./session";
@@ -201,17 +201,43 @@ export function createBot(token: string): { bot: Bot<MyContext>; db: DbService }
   bot.on("callback_query:data", callbackQueryHandler);
 
   bot.catch((err) => {
+    const ctx = err.ctx;
+    if (err.error instanceof GrammyError) {
+      console.error(`Telegram API error (${err.error.error_code}): ${err.error.description}`);
+      if (err.error.error_code === 403) {
+        ctx.reply("I'm unable to send messages to you. Please check your privacy settings.", {
+          reply_markup: mainMenuKeyboard(),
+        }).catch(() => {});
+        return;
+      }
+      if (err.error.error_code === 400) {
+        ctx.reply("Something went wrong with your request. Please try again.", {
+          reply_markup: mainMenuKeyboard(),
+        }).catch(() => {});
+        return;
+      }
+    } else if (err.error instanceof HttpError) {
+      console.error("Network error:", err.error.message);
+      ctx.reply("A network error occurred. Please try again later.", {
+        reply_markup: mainMenuKeyboard(),
+      }).catch(() => {});
+      return;
+    }
     console.error("Bot error:", err.error);
-    err.ctx.reply("An unexpected error occurred. Please try again.", {
+    ctx.reply("An unexpected error occurred. Please try again.", {
       reply_markup: mainMenuKeyboard(),
     }).catch(() => {});
   });
 
   // Fallback for unhandled text messages
   bot.on("message:text", async (ctx) => {
-    await ctx.reply("Invalid command. Use /help for options.", {
-      reply_markup: mainMenuKeyboard(),
-    });
+    try {
+      await ctx.reply("Invalid command. Use /help for options.", {
+        reply_markup: mainMenuKeyboard(),
+      });
+    } catch {
+      // User may have blocked the bot or message failed to send
+    }
   });
 
   return { bot, db };
